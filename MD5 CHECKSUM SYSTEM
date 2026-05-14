@@ -1,0 +1,457 @@
+import hashlib
+import json
+import os
+from datetime import datetime
+
+class AplikasiProfil:
+    def __init__(self, database_file="data_user.json"):
+        self.database_file = database_file
+        self.current_user = None
+        self.database = self.load_database()
+        self.migrate_old_data()
+        print("\n[SISTEM] Aplikasi Profil User & Admin siap digunakan.")
+
+    # =========================
+    # MIGRASI DATA LAMA
+    # =========================
+    def migrate_old_data(self):
+        updated = False
+
+        for username, data in self.database.items():
+
+            # Migrasi hash lama
+            if 'hash_awal' in data or 'hash_terkini' in data:
+                if 'hash_sekarang' not in data:
+                    data['hash_sekarang'] = data.get(
+                        'hash_terkini',
+                        data.get('hash_awal', '')
+                    )
+                    updated = True
+
+                if 'hash_awal' in data:
+                    del data['hash_awal']
+
+                if 'hash_terkini' in data:
+                    del data['hash_terkini']
+
+            # Tambahkan last_update jika belum ada
+            if 'last_update' not in data:
+                data['last_update'] = None
+                updated = True
+
+            # Tambahkan riwayat_perubahan jika belum ada
+            if 'riwayat_perubahan' not in data:
+                data['riwayat_perubahan'] = []
+                updated = True
+
+        if updated:
+            self.save_database()
+            print("[SISTEM] Database berhasil dimigrasi.")
+
+    # =========================
+    # HASH MD5 PROFIL
+    # =========================
+    def buat_md5_hash(self, data):
+        data_string = json.dumps(data, sort_keys=True, ensure_ascii=False)
+        return hashlib.md5(data_string.encode('utf-8')).hexdigest()
+
+    # =========================
+    # HASH PASSWORD SHA256
+    # =========================
+    def hash_password(self, password):
+        return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+    # =========================
+    # LOAD DATABASE
+    # =========================
+    def load_database(self):
+        if os.path.exists(self.database_file):
+            try:
+                with open(self.database_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[SISTEM] Gagal memuat database: {e}")
+                return {}
+        return {}
+
+    # =========================
+    # SAVE DATABASE
+    # =========================
+    def save_database(self):
+        try:
+            with open(self.database_file, 'w', encoding='utf-8') as f:
+                json.dump(self.database, f, indent=4, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"[SISTEM] Gagal menyimpan database: {e}")
+            return False
+
+    # =========================
+    # VALIDASI PROFIL
+    # =========================
+    def validasi_profil(self, nama, email, hp):
+
+        if not nama:
+            return False, "Nama tidak boleh kosong."
+
+        if not email:
+            return False, "Email tidak boleh kosong."
+
+        if '@' not in email or '.' not in email:
+            return False, "Format email tidak valid."
+
+        if not hp:
+            return False, "Nomor HP tidak boleh kosong."
+
+        clean_hp = hp.replace('+', '').replace('-', '').replace(' ', '')
+
+        if not clean_hp.isdigit():
+            return False, "Nomor HP hanya boleh angka."
+
+        return True, "Valid"
+
+    # =========================
+    # DAFTAR USER
+    # =========================
+    def daftar(self):
+
+        print("\n=== MENU DAFTAR USER ===")
+
+        username = input("Username : ").strip()
+
+        if username in self.database:
+            print("\n[PEMBERITAHUAN] Username sudah digunakan.")
+            return
+
+        password = input("Password : ").strip()
+
+        if len(password) < 4:
+            print("\n[PEMBERITAHUAN] Password minimal 4 karakter.")
+            return
+
+        print("\n=== INPUT DATA PROFIL ===")
+
+        nama = input("Nama Lengkap : ").strip()
+        email = input("Email : ").strip()
+        hp = input("Nomor HP : ").strip()
+
+        valid, pesan = self.validasi_profil(nama, email, hp)
+
+        if not valid:
+            print(f"\n[PEMBERITAHUAN] {pesan}")
+            return
+
+        profil = {
+            'nama': nama,
+            'email': email,
+            'hp': hp,
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        hash_sekarang = self.buat_md5_hash(profil)
+
+        self.database[username] = {
+            'password': self.hash_password(password),
+            'profil': profil,
+            'hash_sekarang': hash_sekarang,
+            'last_update': None,
+            'riwayat_perubahan': []
+        }
+
+        if self.save_database():
+            print("\n[PEMBERITAHUAN] Registrasi berhasil.")
+
+    # =========================
+    # LOGIN USER
+    # =========================
+    def login(self):
+
+        print("\n=== MENU LOGIN ===")
+
+        if self.current_user:
+            print(f"\nSudah login sebagai {self.current_user}")
+            return
+
+        username = input("Username : ").strip()
+        password = input("Password : ").strip()
+
+        if username not in self.database:
+            print("\n[PEMBERITAHUAN] Username tidak ditemukan.")
+            return
+
+        if self.database[username]['password'] != self.hash_password(password):
+            print("\n[PEMBERITAHUAN] Password salah.")
+            return
+
+        self.current_user = username
+
+        print(f"\n[PEMBERITAHUAN] Login berhasil.")
+        print(f"Selamat datang, {self.database[username]['profil']['nama']}")
+
+    # =========================
+    # LOGOUT
+    # =========================
+    def logout(self):
+
+        if self.current_user:
+            print(f"\n{self.current_user} berhasil logout.")
+            self.current_user = None
+        else:
+            print("\nTidak ada user login.")
+
+    # =========================
+    # UPDATE PROFIL
+    # =========================
+    def update_profil(self):
+
+        print("\n=== MENU UPDATE PROFIL ===")
+
+        if not self.current_user:
+            print("\n[PEMBERITAHUAN] Login terlebih dahulu.")
+            return
+
+        data = self.database[self.current_user]
+
+        print("\n=== DATA SAAT INI ===")
+        print(f"Nama  : {data['profil']['nama']}")
+        print(f"Email : {data['profil']['email']}")
+        print(f"HP    : {data['profil']['hp']}")
+
+        print("\n=== INPUT DATA BARU ===")
+
+        nama = input(f"Nama [{data['profil']['nama']}]: ").strip() \
+            or data['profil']['nama']
+
+        email = input(f"Email [{data['profil']['email']}]: ").strip() \
+            or data['profil']['email']
+
+        hp = input(f"HP [{data['profil']['hp']}]: ").strip() \
+            or data['profil']['hp']
+
+        valid, pesan = self.validasi_profil(nama, email, hp)
+
+        if not valid:
+            print(f"\n[PEMBERITAHUAN] {pesan}")
+            return
+
+        profil_baru = {
+            'nama': nama,
+            'email': email,
+            'hp': hp,
+            'updated_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        hash_baru = self.buat_md5_hash(profil_baru)
+
+        hash_lama = data.get('hash_sekarang', '')
+
+        if hash_lama != hash_baru:
+
+            data_riwayat = {
+                'hash_sebelum': hash_lama,
+                'hash_sesudah': hash_baru,
+                'profil_lama': data['profil'],
+                'profil_baru': profil_baru,
+                'updated_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            self.database[self.current_user]['last_update'] = data_riwayat
+
+            self.database[self.current_user]['riwayat_perubahan'].append(
+                data_riwayat
+            )
+
+            self.database[self.current_user]['profil'] = profil_baru
+
+            self.database[self.current_user]['hash_sekarang'] = hash_baru
+
+            if self.save_database():
+                print("\n[PEMBERITAHUAN] Profil berhasil diperbarui.")
+
+        else:
+            print("\n[PEMBERITAHUAN] Data tidak berubah.")
+
+    # =========================
+    # ADMIN CEK STATUS
+    # =========================
+    def admin_cek_status(self):
+
+        print("\n=== MENU ADMIN: CEK STATUS ===")
+
+        if not self.database:
+            print("\nBelum ada data.")
+            return
+
+        print("\nDaftar User:")
+
+        for uid in self.database.keys():
+            print(f"- {uid}")
+
+        target_user = input("\nMasukkan Username : ").strip()
+
+        if target_user not in self.database:
+            print("\nUser tidak ditemukan.")
+            return
+
+        data = self.database[target_user]
+
+        last_update = data.get('last_update')
+
+        if not last_update:
+
+            print("\nSTATUS: BELUM ADA UPDATE")
+            print(f"Hash Saat Ini : {data['hash_sekarang']}")
+
+        else:
+
+            print("\n=== HASIL PERBANDINGAN HASH ===")
+
+            print(f"Hash Sebelum : {last_update['hash_sebelum']}")
+            print(f"Hash Sesudah : {last_update['hash_sesudah']}")
+            print(f"Waktu Update : {last_update['updated_at']}")
+
+            if last_update['hash_sebelum'] != last_update['hash_sesudah']:
+                print("\nKESIMPULAN : DATA BERUBAH")
+
+    # =========================
+    # ADMIN LIHAT SEMUA USER
+    # =========================
+    def admin_lihat_semua(self):
+
+        print("\n=== MENU ADMIN: SEMUA USER ===")
+
+        if not self.database:
+            print("\nBelum ada data.")
+            return
+
+        print(f"\n{'USERNAME':<15} | {'NAMA':<20} | STATUS")
+
+        for uid, data in self.database.items():
+
+            status = (
+                "BELUM UPDATE"
+                if data.get('last_update') is None
+                else "SUDAH UPDATE"
+            )
+
+            print(
+                f"{uid:<15} | "
+                f"{data['profil']['nama']:<20} | "
+                f"{status}"
+            )
+
+    # =========================
+    # ADMIN LIHAT RIWAYAT
+    # =========================
+    def admin_lihat_riwayat(self):
+
+        print("\n=== MENU ADMIN: RIWAYAT PERUBAHAN ===")
+
+        if not self.database:
+            print("\nBelum ada data.")
+            return
+
+        print("\nDaftar User:")
+
+        for uid in self.database.keys():
+            print(f"- {uid}")
+
+        target_user = input("\nMasukkan Username : ").strip()
+
+        if target_user not in self.database:
+            print("\nUser tidak ditemukan.")
+            return
+
+        riwayat = self.database[target_user].get(
+            'riwayat_perubahan',
+            []
+        )
+
+        if not riwayat:
+            print("\nBelum ada riwayat perubahan.")
+            return
+
+        print(f"\n=== RIWAYAT USER: {target_user} ===")
+
+        for i, item in enumerate(riwayat, start=1):
+
+            print(f"\n--- Perubahan Ke-{i} ---")
+
+            print(f"Waktu Update : {item['updated_at']}")
+
+            print(f"Hash Sebelum : {item['hash_sebelum']}")
+
+            print(f"Hash Sesudah : {item['hash_sesudah']}")
+
+            print("\nProfil Lama:")
+            print(f"Nama  : {item['profil_lama']['nama']}")
+            print(f"Email : {item['profil_lama']['email']}")
+            print(f"HP    : {item['profil_lama']['hp']}")
+
+            print("\nProfil Baru:")
+            print(f"Nama  : {item['profil_baru']['nama']}")
+            print(f"Email : {item['profil_baru']['email']}")
+            print(f"HP    : {item['profil_baru']['hp']}")
+
+    # =========================
+    # MENU UTAMA
+    # =========================
+    def run(self):
+
+        while True:
+
+            print("\n====================================")
+            print(" SISTEM PROFIL USER & ADMIN ")
+            print("      MD5 CHECKSUM SYSTEM")
+            print("====================================")
+
+            if self.current_user:
+                print(f"Login sebagai: {self.current_user}")
+
+            print("\n1. Daftar User Baru")
+            print("2. Login User")
+            print("3. Update Profil")
+            print("4. Logout")
+            print("5. [ADMIN] Cek Status Perubahan")
+            print("6. [ADMIN] Lihat Semua User")
+            print("7. [ADMIN] Riwayat Perubahan")
+            print("8. Keluar")
+
+            pilihan = input("\nPilih menu (1-8): ").strip()
+
+            if pilihan == "1":
+                self.daftar()
+
+            elif pilihan == "2":
+                self.login()
+
+            elif pilihan == "3":
+                self.update_profil()
+
+            elif pilihan == "4":
+                self.logout()
+
+            elif pilihan == "5":
+                self.admin_cek_status()
+
+            elif pilihan == "6":
+                self.admin_lihat_semua()
+
+            elif pilihan == "7":
+                self.admin_lihat_riwayat()
+
+            elif pilihan == "8":
+                print("\nProgram selesai.")
+                break
+
+            else:
+                print("\n[PEMBERITAHUAN] Pilihan tidak valid.")
+
+# =========================
+# MAIN PROGRAM
+# =========================
+if __name__ == "__main__":
+
+    app = AplikasiProfil()
+
+    app.run()
